@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contact List</title>
+    <!-- Bulma CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.3/css/bulma.min.css">
+    <!-- Vue.js -->
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.min.js"></script>
+    <!-- Axios -->
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+<body>
+    <div id="app" class="container mt-5">
+        <div class="box">
+            <h1 class="title">Account Settings</h1>
+            <div class="field">
+                <label class="label">Account ID</label>
+                <div class="control">
+                    <input class="input" type="number" v-model="accountId" placeholder="Enter Account ID">
+                </div>
+            </div>
+            <button class="button is-primary" @click="saveSettings">Save Settings</button>
+        </div>
+
+        <div class="box mt-5">
+            <h1 class="title">Contact List</h1>
+            <button class="button is-link" @click="getContacts">Fetch Contacts</button>
+            <table class="table is-fullwidth mt-3" v-if="contacts.length">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Phone Number</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-for="contact in contacts" :key="contact.id" @click="viewContact(contact.id)" style="cursor: pointer;">
+                        <td>{{ contact.name }}</td>
+                        <td>{{ contact.email }}</td>
+                        <td>{{ contact.phone_number }}</td>
+                    </tr>
+                </tbody>
+            </table>
+            <p v-if="contacts.length === 0">No contacts available.</p>
+        </div>
+
+        <!-- Contact Detail Modal -->
+        <div class="modal" :class="{ 'is-active': showModal }">
+            <div class="modal-background" @click="closeModal"></div>
+            <div class="modal-card" v-if="selectedContact">
+                <header class="modal-card-head">
+                    <p class="modal-card-title">{{ selectedContact.name || 'No Name' }}</p>
+                    <button class="delete" aria-label="close" @click="closeModal"></button>
+                </header>
+                <section class="modal-card-body">
+                    <div v-if="selectedContact.thumbnail">
+                        <figure class="image is-96x96">
+                            <img :src="selectedContact.thumbnail" alt="Avatar">
+                        </figure>
+                    </div>
+                    <p><strong>Email:</strong> {{ selectedContact.email || 'No Email' }}</p>
+                    <p><strong>Phone Number:</strong> {{ selectedContact.phone_number || 'No Phone Number' }}</p>
+                    <p><strong>Availability Status:</strong> {{ availabilityStatus || 'Unknown' }}</p>
+                    <p><strong>Last Activity:</strong> {{ lastActivityAgo || 'Not Available' }}</p>
+                    <div v-if="selectedContact.additional_attributes && Object.keys(selectedContact.additional_attributes).length">
+                        <h3 class="subtitle mt-3">Additional Attributes:</h3>
+                        <ul>
+                            <li v-for="(value, key) in selectedContact.additional_attributes" :key="key">
+                                {{ key }}: {{ value }}
+                            </li>
+                        </ul>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        new Vue({
+            el: '#app',
+            data: {
+                accountId: '',
+                contacts: [],
+                selectedContact: {},
+                availabilityStatus: '',
+                lastActivityAgo: '',
+                showModal: false
+            },
+            methods: {
+                saveSettings() {
+                    alert('Settings saved');
+                },
+                async getContacts() {
+                    if (!this.accountId) {
+                        alert('Please enter Account ID');
+                        return;
+                    }
+                    try {
+                        const url = `/api/v1/accounts/${this.accountId}/contacts`;
+                        const response = await axios.get(url, {
+                            params: { page: 1, sort: 'name' }
+                        });
+
+                        this.contacts = response.data.payload;
+                    } catch (error) {
+                        console.error('Error fetching contacts:', error);
+                        alert('Failed to fetch contacts');
+                    }
+                },
+                async viewContact(contactId) {
+                    try {
+                        const url = `/api/v1/accounts/${this.accountId}/contacts/${contactId}`;
+                        const response = await axios.get(url);
+                        if (response.data.payload) {
+                            this.selectedContact = response.data.payload;
+                            this.availabilityStatus = response.data.payload.availability_status;
+                            this.lastActivityAgo = this.timeAgo(response.data.payload.last_activity_at);
+                        } else {
+                            this.selectedContact = {};
+                            console.error('No contact data found');
+                        }
+                        this.showModal = true;
+                    } catch (error) {
+                        console.error('Error fetching contact details:', error);
+                        alert('Failed to fetch contact details');
+                        this.selectedContact = {}; // Reset on error
+                    }
+                },
+                closeModal() {
+                    this.showModal = false;
+                    this.selectedContact = {}; // Reset contact data
+                },
+                timeAgo(timestamp) {
+                    if (!timestamp) return 'Not Available';
+                    const now = Math.floor(Date.now() / 1000);
+                    const seconds = now - timestamp;
+                    const intervals = {
+                        year: 31536000,
+                        month: 2592000,
+                        week: 604800,
+                        day: 86400,
+                        hour: 3600,
+                        minute: 60,
+                        second: 1
+                    };
+                    for (const [key, value] of Object.entries(intervals)) {
+                        const interval = Math.floor(seconds / value);
+                        if (interval >= 1) {
+                            return `${interval} ${key}${interval > 1 ? 's' : ''} ago`;
+                        }
+                    }
+                    return 'Just now';
+                }
+            }
+        });
+    </script>
+</body>
+</html>
+
+
