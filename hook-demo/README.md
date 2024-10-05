@@ -10,7 +10,7 @@ configure `config.yml`
 - `api_access_token` - take from user in account
 
 start web server on same machine as chatwoot:
-- `ruby app.rb`
+- `ruby app.rb -o YOU_LOCAL_DOMAIN_NAME`
 
 Documentation:
 * https://www.chatwoot.com/docs/product/features/webhooks
