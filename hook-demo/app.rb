@@ -1,8 +1,8 @@
 require 'sinatra'
 require 'json'
 require 'net/http'
-require 'uri'
 require 'yaml'
+require 'openai'
 
 # Load configuration from YAML file
 config = YAML.load_file('config.yml')
@@ -10,46 +10,56 @@ config = YAML.load_file('config.yml')
 CHATWOOT_DOMAIN = config['chatwoot_domain']
 API_ACCESS_TOKEN = config['api_access_token']
 ACCOUNT_ID = config['account_id']
-LLM_API_URL = config['llm_api_url']
+OPENAI_API_KEY = config['openai_api_key']
+OPENAI_URI_BASE = config['openai_uri_base']
 LLM_MODEL = config['llm_model']
 
 helpers do
+  def openai_client
+    @openai_client ||= OpenAI::Client.new(
+      uri_base: OPENAI_URI_BASE,
+      access_token: OPENAI_API_KEY
+    )
+  end
+
   def llm_ask(text)
-    uri = URI(LLM_API_URL)
-    request = Net::HTTP::Post.new(uri, 'Content-Type' => 'application/json')
-
-    data = {
-      prompt: text,
-      model: LLM_MODEL
-    }.to_json
-
-    request.body = data
-
-    response = Net::HTTP.start(uri.hostname, uri.port) do |http|
-      http.request(request)
+    begin
+      response = openai_client.completions(
+        parameters: {
+          model: LLM_MODEL,
+          prompt: text,
+          max_tokens: 150
+        }
+      )
+      response_text = response['choices'][0]['text'].strip
+      response_text
+    rescue OpenAI::Error => e
+      puts "OpenAI-specific error: #{e.message}"
+      'Error processing LLM response'
+    rescue StandardError => e
+      puts "General error in llm_ask: #{e.message}"
+      puts e.backtrace.join("\n")
+      'Error processing LLM response'
     end
-
-    response_data = JSON.parse(response.body)
-    response_data["response"]
-  rescue JSON::ParserError
-    'Error processing LLM response'
   end
 end
 
 post '/' do
   begin
     body = request.body.read
-    data = JSON.parse(body) rescue {}
+    data = JSON.parse(body)
 
     if data['event'] == 'message_created' && data['message_type'] == 'incoming'
       conversation_id = data['conversation']['id']
-      response_content = data['content']
+      message = data['content']
+
+      response_message = llm_ask(message)
 
       uri = URI("#{CHATWOOT_DOMAIN}/api/v1/accounts/#{ACCOUNT_ID}/conversations/#{conversation_id}/messages")
       header = { 'Content-Type': 'application/json', 'api_access_token': API_ACCESS_TOKEN }
 
       payload = {
-        content: llm_ask(response_content),
+        content: response_message,
         message_type: 'outgoing',
         private: false
       }
@@ -60,17 +70,20 @@ post '/' do
         http.request(request)
       end
 
-      puts payload
-      puts response.body
       status response.code.to_i
       response.body
     else
       status 200
       body 'No action taken'
     end
+  rescue JSON::ParserError => e
+    puts "JSON Parse Error: #{e.message}"
+    puts e.backtrace.join("\n")
+    status 400
+    body 'Invalid JSON request'
   rescue => e
     puts "Error processing request: #{e.message}"
-    # puts e.backtrace
+    puts e.backtrace.join("\n")
     status 500
     body 'Internal server error'
   end

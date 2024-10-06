@@ -1,9 +1,9 @@
 # spec/app_spec.rb
-
 require 'rspec'
 require 'rack/test'
 require 'webmock/rspec'
-require_relative '../app'  # Require your main application file
+require 'json'
+require_relative '../app'
 
 ENV['RACK_ENV'] = 'test'
 
@@ -14,16 +14,31 @@ RSpec.describe 'Sinatra Application' do
     Sinatra::Application
   end
 
+  let(:openai_stub) { instance_double(OpenAI::Client) }
+
   before do
-    WebMock.enable!  # Enable WebMock to intercept HTTP calls
-    stub_request(:post, LLM_API_URL).to_return(
-      body: { response: "Hello, how can I help you?" }.to_json,
-      headers: { 'Content-Type' => 'application/json' }
-    )
+    WebMock.enable!
+
+    # Stub the OpenAI Client initialization to return the stub
+    allow(OpenAI::Client).to receive(:new).and_return(openai_stub)
+
+    allow(openai_stub).to receive(:completions).with(parameters: {
+        model: LLM_MODEL,
+        prompt: 'Hi',
+        max_tokens: 150
+      }).and_return({
+        'choices' => [{'text' => 'Hello, how can I help you?'}]
+      })
+
+    stub_request(:post, "#{CHATWOOT_DOMAIN}/api/v1/accounts/#{ACCOUNT_ID}/conversations/1/messages")
+      .with(
+        body: { content: "Hello, how can I help you?", message_type: 'outgoing', private: false }.to_json,
+        headers: { 'Content-Type' => 'application/json', 'api_access_token' => API_ACCESS_TOKEN }
+      ).to_return(status: 200, body: "", headers: {})
   end
 
   after do
-    WebMock.disable!  # Disable WebMock to avoid affecting other tests
+    WebMock.disable!
   end
 
   let(:incoming_request_payload) do
@@ -46,7 +61,7 @@ RSpec.describe 'Sinatra Application' do
         name: "contact-name"
       },
       conversation: {
-        id: "1",  # Ensure conversation_id is included and matches the expected ID
+        id: "1",
       },
       account: {
         id: "1",
@@ -56,24 +71,23 @@ RSpec.describe 'Sinatra Application' do
   end
 
   it 'responds to the incoming message event and sends a message to the Chatwoot API' do
-    stub_request(:post, "#{CHATWOOT_DOMAIN}/api/v1/accounts/#{ACCOUNT_ID}/conversations/1/messages")
-      .with(
-        body: { content: "Hello, how can I help you?", message_type: 'outgoing', private: false }.to_json,
-        headers: { 'Content-Type' => 'application/json', 'api_access_token' => API_ACCESS_TOKEN }
-      ).to_return(status: 200, body: "", headers: {})
-
     post '/', incoming_request_payload, { "CONTENT_TYPE" => "application/json" }
 
-    puts "Response status: #{last_response.status}"
-    puts "Response body: #{last_response.body}"
-
     expect(last_response.status).to eq 200
-    expect(WebMock).to have_requested(:post, LLM_API_URL)
+    
+    # Verify that the stubbed method was called with the correct parameters
+    expect(openai_stub).to have_received(:completions).with(
+      parameters: {
+        model: LLM_MODEL,
+        prompt: 'Hi',
+        max_tokens: 150
+      }
+    ).once
+
     expect(WebMock).to have_requested(:post, "#{CHATWOOT_DOMAIN}/api/v1/accounts/#{ACCOUNT_ID}/conversations/1/messages")
       .with(
         body: { content: "Hello, how can I help you?", message_type: 'outgoing', private: false }.to_json,
         headers: { 'Content-Type' => 'application/json', 'api_access_token' => API_ACCESS_TOKEN }
-      )
+      ).once
   end
 end
-
