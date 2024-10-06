@@ -15,6 +15,7 @@ RSpec.describe 'Sinatra Application' do
   end
 
   let(:openai_stub) { instance_double(OpenAI::Client) }
+  let(:chatwoot_api_url) { "#{CHATWOOT_DOMAIN}/api/v1/accounts/#{ACCOUNT_ID}/conversations/1/messages" }
 
   before do
     WebMock.enable!
@@ -22,15 +23,15 @@ RSpec.describe 'Sinatra Application' do
     # Stub the OpenAI Client initialization to return the stub
     allow(OpenAI::Client).to receive(:new).and_return(openai_stub)
 
-    allow(openai_stub).to receive(:completions).with(parameters: {
-        model: LLM_MODEL,
-        prompt: 'Hi',
-        max_tokens: 150
-      }).and_return({
-        'choices' => [{'text' => 'Hello, how can I help you?'}]
-      })
+    allow(openai_stub).to receive(:chat).with(parameters: {
+      model: LLM_MODEL,
+      messages: [{ role: "user", content: 'Hi' }],
+      temperature: 0.7
+    }).and_return({
+      'choices' => [{ 'message' => { 'content' => 'Hello, how can I help you?' } }]
+    })
 
-    stub_request(:post, "#{CHATWOOT_DOMAIN}/api/v1/accounts/#{ACCOUNT_ID}/conversations/1/messages")
+    stub_request(:post, chatwoot_api_url)
       .with(
         body: { content: "Hello, how can I help you?", message_type: 'outgoing', private: false }.to_json,
         headers: { 'Content-Type' => 'application/json', 'api_access_token' => API_ACCESS_TOKEN }
@@ -74,20 +75,21 @@ RSpec.describe 'Sinatra Application' do
     post '/', incoming_request_payload, { "CONTENT_TYPE" => "application/json" }
 
     expect(last_response.status).to eq 200
-    
+
     # Verify that the stubbed method was called with the correct parameters
-    expect(openai_stub).to have_received(:completions).with(
+    expect(openai_stub).to have_received(:chat).with(
       parameters: {
         model: LLM_MODEL,
-        prompt: 'Hi',
-        max_tokens: 150
+        messages: [{ role: "user", content: 'Hi' }],
+        temperature: 0.7
       }
     ).once
 
-    expect(WebMock).to have_requested(:post, "#{CHATWOOT_DOMAIN}/api/v1/accounts/#{ACCOUNT_ID}/conversations/1/messages")
+    expect(WebMock).to have_requested(:post, chatwoot_api_url)
       .with(
         body: { content: "Hello, how can I help you?", message_type: 'outgoing', private: false }.to_json,
         headers: { 'Content-Type' => 'application/json', 'api_access_token' => API_ACCESS_TOKEN }
       ).once
   end
 end
+

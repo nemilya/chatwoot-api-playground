@@ -24,14 +24,14 @@ helpers do
 
   def llm_ask(text)
     begin
-      response = openai_client.completions(
+      response = openai_client.chat(
         parameters: {
           model: LLM_MODEL,
-          prompt: text,
-          max_tokens: 150
+          messages: [{ role: "user", content: text }],
+          temperature: 0.7
         }
       )
-      response_text = response['choices'][0]['text'].strip
+      response_text = response.dig("choices", 0, "message", "content").strip
       response_text
     rescue OpenAI::Error => e
       puts "OpenAI-specific error: #{e.message}"
@@ -88,3 +88,4 @@ post '/' do
     body 'Internal server error'
   end
 end
+
